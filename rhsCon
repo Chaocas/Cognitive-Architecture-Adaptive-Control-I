@@ -1,0 +1,7 @@
+function dx = rhsCon(x,x3,x4,a,fx,delta,Cstep,ep,Cp)
+% alpha=1;
+% beta=1;
+% gamma=1;
+% w=0.5;
+dx = [x(2); 
+      -(a(3)*(x(1)-0.5)^2+a(4)*x(2)^2-a(5))*x(2)-a(6)^2*(x(1)-0.5)+exp(-delta*abs(x(1)-fx))*((a(1)+ a(2)*(x(1)-x3)^2)*(x(2)-x4)-Cp*exp(-ep*(x(2)-x4)^2)*(x(1)-x3))-Cstep*(1-exp(-delta*abs(x(1)-fx)^2))*(x(1)-fx)];
