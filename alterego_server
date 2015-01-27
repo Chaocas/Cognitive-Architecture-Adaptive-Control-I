@@ -1,0 +1,59 @@
+classdef alterego_server
+    properties
+        port = 12345;
+        server_socket = java.net.ServerSocket;
+        output_socket = java.net.Socket;
+        output_stream = 0;%java.io.InputStream;
+        data_output_stream = 0;%java.io.DataInputStream;
+    end
+    
+    methods
+        function obj = alterego_server(port)
+            obj.port = port;
+            obj.output_socket.close();
+        end
+        
+        function obj = accept(obj)
+           try
+                obj.server_socket = java.net.ServerSocket(obj.port);
+                obj.server_socket.setSoTimeout(1000);
+                obj.output_socket = obj.server_socket.accept();
+                obj.output_socket.getInetAddress()
+                fprintf(1, 'client connected  \n');
+                obj.output_stream   = obj.output_socket.getOutputStream();
+                obj.data_output_stream = java.io.DataOutputStream(obj.output_stream);
+           catch
+               obj.server_socket.close();
+               obj.output_socket.close();
+               fprintf(1, 'accept failed\n');
+           end
+            
+        end
+        
+        function [ data, obj ] = set(obj, data)
+            %fprintf(1, 'closed %i\n', obj.output_socket.isClosed());
+            if (obj.output_socket.isClosed())
+                data.invalid = true;
+                return;
+            end
+
+            try
+                obj.data_output_stream.writeByte(hex2dec('AE'));
+                obj.data_output_stream.writeByte(hex2dec('AE'));
+                obj.data_output_stream.writeInt(21); % length
+                obj.data_output_stream.writeByte(1); % id
+                obj.data_output_stream.writeLong(data.seconds); % posix seconds
+                obj.data_output_stream.writeLong(data.microseconds); % posix microseconds
+                obj.data_output_stream.writeFloat(data.position);
+                obj.data_output_stream.writeByte(hex2dec('AD'));
+                obj.data_output_stream.flush();
+            catch
+                data.invalid = true;
+                return;
+            end
+            data.invalid = false;
+        end % function set
+    end
+    
+end
+
