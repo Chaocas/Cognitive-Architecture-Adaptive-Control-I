@@ -1,0 +1,235 @@
+function [] = cognitive_architecture(LF,time,ref,delta,Cstep)
+
+% E.g. : cognitive_architecture(1,20,'self.mat')
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%clear all;
+
+if nargin<3
+    LF=1;
+    time=40;
+    ref='self.mat';
+    delta=20;      % coupling coefficients
+    Cstep=3;       % coupling strength
+end
+
+saveName ='testData0001.mat'; %Robin
+indexName = 1; %Robin
+
+while exist(saveName) %Robin
+    saveName = [saveName(1:end-8) num2str(indexName,'%04i') '.mat']; %Robin
+    indexName = indexName + 1;
+end %Robin
+
+%%% Rob 20130113 -beg
+loopSave=1;
+[participantSave,avatarSave]=deal(nan(100000,3));
+[A]=deal(nan(100000,2));
+[FA1,PEM]=deal(nan(100000,6));
+tic
+
+%%% Rob 20130113 - end
+
+a=[-10 -10 1 2 -1 0.1]';
+
+i=1;
+j=1;    
+
+% (0: follower condition, 1: leader condtion)
+
+ep=0.3;          % coefficient of velocity error
+Cp=4.0;          % feedback gain of controller
+
+Tem = zeros(2,1);         % intermediate variables
+Pem = zeros(6,1);
+
+k=[1 1 1 1 1 1];
+
+u = zeros(2,1);           % solution vector    
+u(1,1)=0.5;
+u(2,1)=0;
+
+
+u_ = u(:,1);
+u2 = zeros(2,1);          % solution vector
+u3 = zeros(2,2);
+
+dataP=alterego_data();
+
+acc=5;
+rp=0.5;
+rv=0;
+ra=0;
+Rectime=8;   %(human reaction time: 25*8=200ms)
+Deltime=1;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+source = alterego_client('127.0.0.1', 23420);
+sink = alterego_client('127.0.0.1', 23422);
+
+%sink = alterego_server(23420);
+
+Sdata=load(ref);
+
+load('10cmDistortion.mat');
+input=idiot(end:-1:1);
+[param,stat]=sigm_fit(linspace(idiot(end),idiot(1),18),idiot(end:-1:1));
+
+while (true)
+    % try to read data from source server
+    [data, source] = source.get();
+    % check if receive was valid
+    if (data.invalid)
+        % print failure
+        fprintf(1, 'receiving failed\n');
+        % try to (re)connect
+        source = source.connect();
+        % wait a while
+        pause(1);
+        % stop further processing
+        continue;
+    end % if
+    
+    % skip any additional data in the incoming buffer
+    
+    source.skip();
+    
+    % compute whatever is required here
+    fprintf(1, 'received position %f time seconds %li microseconds %li\n', data.position, data.seconds, data.microseconds);
+    
+    %%%% Rob 20130113 -beg
+    participantSave(loopSave,1:3)=[data.position, data.seconds, data.microseconds];
+    %%%% Rob 20130113 -end
+    
+    
+    if(i==1)
+        dt=0.025;
+    else
+        dt=(data.seconds-dataP.seconds)+0.000001*(data.microseconds-dataP.microseconds);
+    end
+    
+    %     dataP.seconds=data.seconds;
+    %     dataP.microseconds=data.microseconds;
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% recorded time series
+    if(LF==0)       % Follower Model
+        delta=0;
+        x3=param(3)-(1/param(4))*log10((param(2)-param(1))./(data.position-param(1))-1);
+        ex4=(x3-dataP.position)/dt;
+        %%%%%%%%%%%%%%%%%
+        rv=(dataP.position-rp)/dt;
+        ra=(ex4-rv)/dt;
+        if(abs(ra)>acc)&&(Deltime==1)
+           Deltime=Rectime;
+           Delp=x3;
+           Delv=rv;  %(rv or ex4)
+        end 
+        if(Deltime~=1)
+          x3=Delp+Delv*(Rectime-Deltime)*dt;
+          ex4=Delv;
+          Deltime=Deltime-1;
+        end 
+        %x3=data.position;
+        %ex4=(data.position-dataP.position)/dt;
+        %dataP.position=data.position;
+    else            % Leader Model 
+        a(6)=0.6;   % increase \omega so that the avatar can track high frequency siginal
+        x3=param(3)-(1/param(4))*log10((param(2)-param(1))./(Sdata.ans(j)-param(1))-1);
+        x4=param(3)-(1/param(4))*log10((param(2)-param(1))./(Sdata.ans(j+1)-param(1))-1);
+        ex4=(x4-x3)/dt;
+        %x3=Sdata.ans(j);
+        %ex4=(Sdata.ans(j+1)-Sdata.ans(j))/dt;
+        j=j+1;
+    end
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% follower's position
+    
+    fx=param(3)-(1/param(4))*log10((param(2)-param(1))./(data.position-param(1))-1);
+    
+    %fx=data.position;
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    u3(:,1)=u(:,1);
+    
+    fa = rhsCon(u_,x3,ex4,a,fx,delta,Cstep,ep,Cp);
+    Tem = dt*fa;
+    
+    if(not(abs(Tem(1,1))<10))
+        Tem = zeros(2,1);
+        u3(2,1)=0;
+    end
+    
+    u3(:,2) = u3(:,1) + Tem;
+    % hard constraints
+    if(u3(1,2)>1)
+        u3(1,2)=1;
+    elseif(u3(1,2)<0)
+        u3(1,2)=0;
+    end
+    
+    % update 'a' and 'b' in HKB model
+    u_ = u3(:,2);
+    x = u3(:,2);
+    
+    if((x(2)-ex4)==0)
+        a = a;
+    else
+        fa1 = adapConP(k,x,x3,ex4,a,ep,Cp);
+        Pem = dt*fa1;
+        if(not(abs(Pem(2,1))<100))
+            Pem = zeros(6,1);
+            a(1)=0.1;
+            a(2)=-0.5;
+        end
+        a = a + Pem;
+    end
+    
+    u(:,1)=u3(:,2);
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    rp=dataP.position;
+    dataP.position=data.position;
+    dataP.seconds=data.seconds;
+    dataP.microseconds=data.microseconds;
+    
+    data.position=u3(1,2);
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    fprintf(1, 'sending position %f time seconds %li microseconds %li\n', data.position, data.seconds, data.microseconds);
+    
+    %%%% Rob 20130113 -beg
+    avatarSave(loopSave,1:3)=[data.position, data.seconds, data.microseconds];
+    %%%% Rob 20130113 -end
+    A(loopSave,1:2)=a(1:2);
+     FA1(loopSave,1:6)=fa1(1:6)';
+      PEM(loopSave,1:6)=Pem(1:6)';
+    % send data to server
+    [data, sink] = sink.set(data);
+    
+    % check if sending was successful
+    if (data.invalid)
+        % print failed
+        fprintf(1, 'sending failed \n');
+        
+        sink = sink.connect();
+    end %if
+    
+    if toc>time
+        %%%% Rob 20130113 -beg
+        save(saveName,'participantSave','avatarSave','A','PEM','FA1');
+        break
+    end
+    %%%% Rob 20130113 -beg
+    loopSave=loopSave+1;
+    %%%% Rob 20130113 -end
+    
+    
+    if(j==5216)
+        j=1;
+    end
+    
+    i=2;
+end  %while
+
+end
+
