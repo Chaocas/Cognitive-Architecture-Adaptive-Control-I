@@ -1,0 +1,13 @@
+classdef alterego_data
+    properties
+        invalid = true;
+        position = 0.5;
+        seconds = 0;
+        microseconds = 0;
+    end
+    
+    methods
+    end
+    
+end
+
