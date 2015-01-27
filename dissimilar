@@ -1,0 +1,17 @@
+clc
+clear all
+load('self.mat')
+x=ans;
+x(isnan(x))=[];
+%x=interp1(.01:.01:60,x,.025:.025:60,'spline');
+aV=abs(diff(x));
+aVMax = sort(aV);
+aVMax = aVMax(end-1);
+Amp=.3 * aV./aVMax;
+t=.025:.025:length(x)/40;
+signX=sign(x);
+x2= x(1:end-1) + sin (2 .* pi .* t(1:end-1)' .* 1) .* (Amp.*signX(1:end-1));
+[a,b]=butter(2,[.5]);
+x=filtfilt(a,b,x2);
+ans=x;
+save('noself.mat','ans');
