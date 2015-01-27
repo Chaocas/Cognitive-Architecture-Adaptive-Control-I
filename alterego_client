@@ -1,0 +1,108 @@
+
+classdef alterego_client
+    properties
+        host = 'localhost';
+        port = 12345;
+        input_socket = java.net.Socket;
+        input_stream = 0;%java.io.InputStream;
+        data_input_stream = 0;%java.io.DataInputStream;
+        output_stream = 0;%java.io.InputStream;
+        data_output_stream = 0;%java.io.DataInputStream;
+    end
+    
+    methods
+        function obj = alterego_client(host, port)
+            obj.host = host;
+            obj.port = port;
+        end
+        
+        function [ obj ] = connect(obj)
+            import java.net.Socket
+            import java.io.*
+
+            obj.input_socket.close();
+            
+            try
+                obj.input_socket = Socket(obj.host, obj.port);
+                obj.input_socket.setSoTimeout(500);
+                obj.input_stream = obj.input_socket.getInputStream();
+                obj.data_input_stream = DataInputStream(obj.input_stream);
+                obj.output_stream = obj.input_socket.getOutputStream();
+                obj.data_output_stream = DataOutputStream(obj.output_stream);
+            catch err
+                err.message
+                fprintf(1, 'connect failed\n');
+                obj.input_socket.close();
+                return;
+            end
+            
+            fprintf(1, 'connected to host %s port %i\n', obj.host, obj.port);
+        end % function connect
+        
+        function [ data, obj ] = get(obj)
+            data = alterego_data();
+            
+            if (obj.input_socket.isClosed())
+                return;
+            end %if
+            
+                       
+            try
+                one = obj.data_input_stream.readByte(); % 0xAE
+                two = obj.data_input_stream.readByte(); % 0xAE
+                size = obj.data_input_stream.readInt(); % size
+                id = obj.data_input_stream.readByte(); % id
+                data.seconds = obj.data_input_stream.readLong(); % seconds
+                data.microseconds = obj.data_input_stream.readLong(); % us
+                data.position = obj.data_input_stream.readFloat(); % position
+                three = obj.data_input_stream.readByte(); % 0xAD
+            catch err
+                err.message
+                return;
+            end
+            
+            data.invalid = false;
+        end % function get
+        
+        function [ data, obj ] = set(obj, data)
+            if (obj.input_socket.isClosed())
+                fprintf(1, 'Fail! Because we are not connected\n');
+                data.invalid = true;
+                return;
+            end
+
+            try
+                obj.data_output_stream.writeByte(hex2dec('AE'));
+                obj.data_output_stream.writeByte(hex2dec('AE'));
+                obj.data_output_stream.writeInt(21); % length
+                obj.data_output_stream.writeByte(1); % id
+                obj.data_output_stream.writeLong(data.seconds); % posix seconds
+                obj.data_output_stream.writeLong(data.microseconds); % posix microseconds
+                obj.data_output_stream.writeFloat(data.position);
+                obj.data_output_stream.writeByte(hex2dec('AD'));
+                obj.data_output_stream.flush();
+            catch err
+                err.message
+                data.invalid = true;
+                return;
+            end
+            data.invalid = false;
+        end % function set
+        
+        function obj = skip(obj)
+            if (obj.input_socket.isClosed())
+                return;
+            end %if
+            
+            bytes_available = obj.input_stream.available();
+            if (bytes_available > 0)
+                fprintf(1, '***warning*** skipping %i bytes\n', bytes_available);
+                obj.input_stream.skip(bytes_available);
+            end
+        end % function skip
+
+    end
+    
+end
+
+ 
